@@ -180,7 +180,7 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
     if(!clientId&&clients.length>0){showToast('Please select a client','er');return;}
     if(selectedFormats.length===0){showToast('Please select at least one format','er');return;}
     if(!productOffer&&!keyMessage){showToast('Add a product/offer or key message','er');return;}
-    if(!apiKey){showToast('No Claude API key — go to Settings','er');return;}
+    if(!apiKey){} // API key now stored in n8n proxy - no check needed
     setGenerating(true);setResults([]);
     const client=getClient();
     const systemPrompt=buildSystem(client);
@@ -189,9 +189,10 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
       for(let v=1;v<=numVariants;v++){
         done++;setProgress(`Generating ${done} of ${total} — ${FORMATS.find(f=>f.id===format)?.label||format} variant ${v}…`);
         try{
-          const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:systemPrompt,messages:[{role:'user',content:buildUser(client,format,v)}]})});
-          if(!res.ok){const err=await res.json().catch(()=>({}));if(res.status===401){showToast('Invalid API key','er');setGenerating(false);setProgress('');return;}throw new Error(err.error?.message||`HTTP ${res.status}`);}
-          const data=await res.json();const text=data.content?.[0]?.text?.trim()||'';
+          const N8N_PROXY='https://n8n-y8wq-production.up.railway.app/webhook/claude-proxy';
+          const res=await fetch(N8N_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:systemPrompt,prompt:buildUser(client,format,v)})});
+          if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.message||`HTTP ${res.status}`);}
+          const data=await res.json();const text=(data.content?.[0]?.text||data[0]?.content?.[0]?.text||'').trim();
           if(text){const item={id:uid(),formatId:format,variantNum:v,text,clientId:clientId||'',clientName:client?client.basics.brandName||client.basics.clientName:'No client',goal,productOffer,keyMessage,toneOverride,lang:language,createdAt:new Date().toISOString()};newResults.push(item);setResults(p=>[...p,item]);}
           if(done<total)await new Promise(r=>setTimeout(r,300));
         }catch(e){const item={id:uid(),formatId:format,variantNum:v,text:`⚠ Error: ${e.message}`,clientId:'',clientName:'',createdAt:new Date().toISOString(),error:true};newResults.push(item);setResults(p=>[...p,item]);}
@@ -317,7 +318,6 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
   const generateView=html`
     <div style=${{display:'grid',gridTemplateColumns:'380px 1fr',gap:0,minHeight:'calc(100vh - 54px)'}}>
       <div style=${{borderRight:`1px solid ${C.bd}`,padding:'24px',overflowY:'auto',background:C.s4,height:'calc(100vh - 54px)',position:'sticky',top:54}}>
-        ${!apiKey&&html`<div style=${{background:`${C.wn}12`,border:`1px solid ${C.wn}40`,borderRadius:8,padding:'11px 14px',marginBottom:16,fontSize:12,color:C.wn}}>⚠️ No API key. <button onClick=${()=>setView('settings')} style=${{background:'none',border:'none',color:C.ac,cursor:'pointer',fontSize:12,textDecoration:'underline'}}>Go to Settings</button></div>`}
         <${Sec} t="Client & campaign">
           <div style=${{marginBottom:12}}>
             <${Lb}>Client</${Lb}>
@@ -349,7 +349,7 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
           <div style=${{marginBottom:12}}><${Lb}>Tone</${Lb}><select style=${inp()} value=${toneOverride} onChange=${e=>setToneOverride(e.target.value)}>${TONES.map(t=>html`<option key=${t} value=${t}>${t}</option>`)}</select></div>
           <div><${Lb}>Extra context</${Lb}><textarea style=${inp({resize:'vertical',minHeight:56})} value=${extraContext} onChange=${e=>setExtraContext(e.target.value)} placeholder="Special instructions, must-include phrases…"/></div>
         </${Sec}>
-        <button onClick=${generateCopy} disabled=${generating||!apiKey} style=${pbtn(true,{width:'100%',padding:'12px 0',fontSize:14,fontWeight:600,background:generating?C.mt:!apiKey?C.mt:C.ac,cursor:generating||!apiKey?'not-allowed':'pointer'})}>
+        <button onClick=${generateCopy} disabled=${generating} style=${pbtn(true,{width:'100%',padding:'12px 0',fontSize:14,fontWeight:600,background:generating?C.mt:C.ac,cursor:generating?'not-allowed':'pointer'})}>
           ${generating?'Generating…':'⚡ Generate Copy'}
         </button>
         ${generating&&html`<div style=${{marginTop:12,padding:'10px 14px',background:C.s2,borderRadius:6,border:`0.5px solid ${C.bd}`}}><div style=${{fontSize:12,color:C.wn,marginBottom:6}}>${progress}</div><div style=${{height:3,background:C.bd,borderRadius:2}}><div style=${{height:'100%',background:C.ac,borderRadius:2,animation:'pulse 1.5s ease-in-out infinite'}}></div></div></div>`}
@@ -360,7 +360,6 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
             <div style=${{fontSize:56,marginBottom:16}}>✍️</div>
             <div style=${{fontSize:18,color:C.tx,marginBottom:8,fontWeight:600}}>Ready to generate</div>
             <div style=${{fontSize:13,lineHeight:1.7,maxWidth:420,margin:'0 auto',marginBottom:20}}>Select a client, add your product/offer, pick formats, and hit Generate. Brand voice loads automatically from Supabase.</div>
-            ${!apiKey&&html`<div style=${{background:`${C.wn}12`,border:`1px solid ${C.wn}40`,borderRadius:8,padding:'12px 18px',fontSize:13,color:C.wn,display:'inline-block'}}>⚠️ Add your Claude API key in Settings first</div>`}
           </div>`
         :html`<div>
           ${results.length>0&&html`
