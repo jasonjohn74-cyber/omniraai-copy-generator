@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniraAI — AI Copy Generator</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#05080f;color:#cfe0f5;}
+input,select,textarea,button{font-family:inherit;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#1a3055;border-radius:3px;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/htm@3/dist/htm.js"></script>
+<script>
+const{useState,useEffect}=React;
+const html=htm.bind(React.createElement);
+
+const SB_URL='https://vchtdsfrryxnvceierkn.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjaHRkc2Zycnl4bnZjZWllcmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0ODcyMTYsImV4cCI6MjA5NDA2MzIxNn0.VuPuPqCbVYlxNpeTulkKK-IMezzxg3C05c4kWn3evqo';
+const SBH={'apikey':SB_KEY,'Authorization':`Bearer ${SB_KEY}`,'Content-Type':'application/json'};
+const db={
+  async getSetting(k){try{const r=await fetch(`${SB_URL}/rest/v1/settings?key=eq.${k}&select=value`,{headers:SBH});const d=await r.json();return d[0]?.value||null;}catch{return null;}},
+  async setSetting(k,v){try{await fetch(`${SB_URL}/rest/v1/settings`,{method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates'},body:JSON.stringify({key:k,value:v,updated_at:new Date().toISOString()})});}catch(e){console.error(e);}},
+  async getClients(){try{const r=await fetch(`${SB_URL}/rest/v1/clients?select=*&order=created_at.desc`,{headers:SBH});const d=await r.json();return Array.isArray(d)?d.map(x=>x.data):[];}catch{return[];}},
+  async getSavedCopy(){try{const r=await fetch(`${SB_URL}/rest/v1/saved_copy?select=*&order=created_at.desc`,{headers:SBH});const d=await r.json();return Array.isArray(d)?d.map(x=>x.data):[];}catch{return[];}},
+  async upsertSavedCopy(item){try{await fetch(`${SB_URL}/rest/v1/saved_copy`,{method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates'},body:JSON.stringify({id:item.id,client_id:item.clientId||'',format_id:item.formatId,data:item})});}catch(e){console.error(e);}},
+  async deleteSavedCopy(id){try{await fetch(`${SB_URL}/rest/v1/saved_copy?id=eq.${id}`,{method:'DELETE',headers:SBH});}catch(e){console.error(e);}},
+  async getCopyHistory(){try{const r=await fetch(`${SB_URL}/rest/v1/copy_history?select=*&order=created_at.desc&limit=50`,{headers:SBH});const d=await r.json();return Array.isArray(d)?d.map(x=>x.data):[];}catch{return[];}},
+  async upsertCopyHistory(s){try{await fetch(`${SB_URL}/rest/v1/copy_history`,{method:'POST',headers:{...SBH,'Prefer':'resolution=merge-duplicates'},body:JSON.stringify({id:s.id,client_id:s.clientId||'',data:s})});}catch(e){console.error(e);}},
+  async clearCopyHistory(){try{await fetch(`${SB_URL}/rest/v1/copy_history`,{method:'DELETE',headers:SBH});}catch(e){console.error(e);}},
+};
+
+const C={bg:'#05080f',s1:'#0a1020',s2:'#0e1830',s3:'#13213e',s4:'#071526',bd:'#17304e',bdB:'#1d4070',ac:'#4a86f5',tx:'#cfe0f5',dm:'#5a8ab0',mt:'#274466',ok:'#34d399',wn:'#fbbf24',er:'#f87171',pu:'#a78bfa',tl:'#2dd4bf',or:'#fb923c'};
+const inp=(ex={})=>({background:C.s2,border:`0.5px solid ${C.bd}`,borderRadius:6,color:C.tx,padding:'8px 11px',fontSize:13,width:'100%',outline:'none',...ex});
+const pbtn=(on,ex={})=>({background:on?C.ac:'transparent',color:on?'#fff':C.tx,border:on?'none':`0.5px solid ${C.bd}`,borderRadius:6,padding:'7px 14px',fontSize:13,cursor:'pointer',...ex});
+
+const FORMATS=[
+  {id:'ig_caption',label:'Instagram Caption',icon:'📸',platform:'Instagram'},
+  {id:'tiktok_caption',label:'TikTok Caption',icon:'🎵',platform:'TikTok'},
+  {id:'fb_caption',label:'Facebook Caption',icon:'📘',platform:'Facebook'},
+  {id:'ad_hook',label:'Ad Hook',icon:'🎣',platform:'All Ads'},
+  {id:'ad_headline',label:'Ad Headline',icon:'📢',platform:'Meta Ads'},
+  {id:'ad_body',label:'Ad Body Copy',icon:'📝',platform:'Meta Ads'},
+  {id:'email_subject',label:'Email Subject',icon:'📧',platform:'Email'},
+  {id:'email_preview',label:'Email Preview Text',icon:'👁',platform:'Email'},
+  {id:'email_body',label:'Email Body',icon:'📨',platform:'Email'},
+  {id:'whatsapp',label:'WhatsApp Message',icon:'💬',platform:'WhatsApp'},
+  {id:'shopee_title',label:'Shopee Title',icon:'🛍',platform:'Shopee'},
+  {id:'shopee_desc',label:'Shopee Description',icon:'🛒',platform:'Shopee/Lazada'},
+  {id:'story_script',label:'Story / Reel Script',icon:'🎬',platform:'IG/TikTok'},
+  {id:'sms_blast',label:'SMS Blast',icon:'📱',platform:'SMS'},
+  {id:'linkedin_post',label:'LinkedIn Post',icon:'💼',platform:'LinkedIn'},
+];
+const TONES=['Use brand voice (default)','More urgent','More playful','More premium/luxury','More educational','More emotional','More direct/hard sell','More conversational'];
+const LANGS=['English','Bahasa Malaysia','Manglish (English + BM mix)','Mandarin Chinese','Tamil'];
+const GOALS=['Lead generation','Product launch','Sales / promotion','Brand awareness','Event promotion','Retention / loyalty','Educational','Seasonal campaign'];
+const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
+const fmtdt=d=>d?new Date(d).toLocaleString('en-MY',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
+
+function Lb({children}){return html`<div style=${{fontSize:11,color:C.dm,textTransform:'uppercase',letterSpacing:'0.8px',marginBottom:5}}>${children}</div>`;}
+function Hint({children}){return html`<div style=${{fontSize:11,color:C.mt,marginTop:4,lineHeight:1.5}}>${children}</div>`;}
+function Chips({opts=[],selected=[],onToggle}){return html`<div style=${{display:'flex',flexWrap:'wrap',gap:6}}>${opts.map(o=>{const k=typeof o==='object'?o.id||o.k:o,l=typeof o==='object'?o.label||o.v:o,on=selected.includes(k);return html`<button key=${k} onClick=${()=>onToggle(k)} style=${{background:on?C.ac:C.s3,color:on?'#fff':C.dm,border:`0.5px solid ${on?C.ac:C.bd}`,borderRadius:20,padding:'4px 12px',fontSize:12,cursor:'pointer'}}>${l}</button>`;})}</div>`;}
+function Card({style={},children}){return html`<div style=${{background:C.s1,border:`0.5px solid ${C.bd}`,borderRadius:10,...style}}>${children}</div>`;}
+function Sec({t,children,action}){return html`<div style=${{marginBottom:20}}><div style=${{fontSize:11,color:C.ac,textTransform:'uppercase',letterSpacing:'1px',marginBottom:11,paddingBottom:7,borderBottom:`0.5px solid ${C.bd}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}><span>${t}</span>${action||''}</div>${children}</div>`;}
+function Spinner(){return html`<div style=${{display:'flex',alignItems:'center',justifyContent:'center',gap:10,padding:'40px',color:C.dm,fontSize:13}}><div style=${{width:18,height:18,border:`2px solid ${C.bd}`,borderTop:`2px solid ${C.ac}`,borderRadius:'50%',animation:'spin 0.8s linear infinite'}}></div>Loading…</div>`;}
+
+function CopyCard({item,onSave,onDelete,savedIds=[]}){
+  const[copied,setCopied]=useState(false);
+  const isSaved=savedIds.includes(item.id);
+  async function copy(){try{await navigator.clipboard.writeText(item.text);setCopied(true);setTimeout(()=>setCopied(false),2000);}catch{window.prompt('Copy:',item.text);}}
+  const fmt=FORMATS.find(f=>f.id===item.formatId)||{icon:'📝',label:item.formatId,platform:''};
+  return html`<div style=${{background:C.s2,border:`0.5px solid ${isSaved?C.ok:C.bd}`,borderRadius:8,padding:'14px 16px',marginBottom:10}}>
+    <div style=${{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10,gap:10}}>
+      <div style=${{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+        <span style=${{fontSize:15}}>${fmt.icon}</span>
+        <span style=${{fontSize:12,fontWeight:600,color:C.tx}}>${fmt.label}</span>
+        <span style=${{background:C.s3,border:`0.5px solid ${C.bd}`,borderRadius:4,padding:'1px 7px',fontSize:10,color:C.dm}}>${fmt.platform}</span>
+        ${item.lang&&item.lang!=='English'&&html`<span style=${{background:`${C.pu}15`,border:`0.5px solid ${C.pu}40`,borderRadius:4,padding:'1px 7px',fontSize:10,color:C.pu}}>${item.lang}</span>`}
+        <span style=${{fontSize:11,color:C.mt}}>Variant ${item.variantNum}</span>
+      </div>
+      <div style=${{display:'flex',gap:5,flexShrink:0}}>
+        <button onClick=${copy} style=${pbtn(false,{fontSize:11,padding:'3px 9px',color:copied?C.ok:C.dm,border:`0.5px solid ${copied?C.ok:C.bd}50`})}>${copied?'✓ Copied':'Copy'}</button>
+        <button onClick=${()=>onSave(item)} style=${pbtn(isSaved,{fontSize:11,padding:'3px 9px',background:isSaved?`${C.ok}20`:'transparent',color:isSaved?C.ok:C.dm,border:`0.5px solid ${isSaved?C.ok:C.bd}50`})}>${isSaved?'✓ Saved':'Save'}</button>
+        <button onClick=${()=>onDelete(item.id)} style=${{background:'none',border:'none',color:C.mt,cursor:'pointer',fontSize:14,padding:'3px 5px'}}>×</button>
+      </div>
+    </div>
+    <div style=${{fontSize:13,color:C.tx,lineHeight:1.75,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>${item.text}</div>
+    <div style=${{fontSize:11,color:C.mt,marginTop:8}}>${item.clientName} · ${fmtdt(item.createdAt)}</div>
+  </div>`;
+}
+
+function App(){
+  const[locked,setLocked]=useState(true);
+  const[pin,setPin]=useState('');const[pErr,setPErr]=useState('');const[savedPin,setSavedPin]=useState(null);const[pmode,setPmode]=useState('check');const[pin2,setPin2]=useState('');
+  const[clients,setClients]=useState([]);
+  const[apiKey,setApiKey]=useState('');const[apiKeyInput,setApiKeyInput]=useState('');
+  const[view,setView]=useState('generate');
+  const[generating,setGenerating]=useState(false);
+  const[progress,setProgress]=useState('');
+  const[results,setResults]=useState([]);
+  const[saved,setSavedItems]=useState([]);
+  const[history,setHistory]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[toast,setToast]=useState('');const[toastType,setToastType]=useState('ok');
+  const[clientId,setClientId]=useState('');
+  const[selectedFormats,setSelectedFormats]=useState(['ig_caption','ad_hook','whatsapp']);
+  const[goal,setGoal]=useState('');
+  const[productOffer,setProductOffer]=useState('');
+  const[keyMessage,setKeyMessage]=useState('');
+  const[toneOverride,setToneOverride]=useState('Use brand voice (default)');
+  const[language,setLanguage]=useState('English');
+  const[numVariants,setNumVariants]=useState(3);
+  const[extraContext,setExtraContext]=useState('');
+  const[filterFormat,setFilterFormat]=useState('all');
+
+  useEffect(()=>{(async()=>{
+    const p=await db.getSetting('pin');if(p)setSavedPin(p);else setPmode('create');
+    const ak=await db.getSetting('claude_api_key');if(ak){setApiKey(ak);setApiKeyInput(ak);}
+    const cl=await db.getClients();setClients(cl);
+    const sv=await db.getSavedCopy();setSavedItems(sv);
+    const hi=await db.getCopyHistory();setHistory(hi);
+    setLoading(false);
+  })();},[]);
+
+  const showToast=(msg,type='ok')=>{setToast(msg);setToastType(type);setTimeout(()=>setToast(''),3000);};
+  function doPin(){if(pmode==='create'){if(pin.length<4){setPErr('Min 4 chars');return;}if(pin!==pin2){setPErr('PINs do not match');return;}db.setSetting('pin',pin);setSavedPin(pin);setLocked(false);}else{if(pin===savedPin){setLocked(false);setPErr('');}else{setPErr('Incorrect PIN');setPin('');}}}
+  async function saveApiKey(){await db.setSetting('claude_api_key',apiKeyInput);setApiKey(apiKeyInput);showToast('API key saved ✓','ok');}
+  const togFormat=f=>setSelectedFormats(p=>p.includes(f)?p.filter(x=>x!==f):[...p,f]);
+  function getClient(){return clients.find(c=>c.id===clientId);}
+
+  function buildSystem(client){
+    if(!client)return'You are an expert marketing copywriter. Write compelling, conversion-focused copy.';
+    const b=client.voice||{};const a=client.audience||{};const m=client.messaging||{};
+    return`You are an expert marketing copywriter for the brand "${client.basics.brandName||client.basics.clientName}".
+BRAND: Industry: ${client.basics.industry==='Other'?client.basics.industryOther:client.basics.industry||'Not specified'} | Tagline: ${b.tagline||'Not set'} | Archetype: ${b.archetype||'Not set'}
+VOICE: Tone: ${(b.tones||[]).join(', ')||'Professional, friendly'} | Style: ${b.writingStyle||'Clear and engaging'} | Personality: ${(b.personality||[]).join(', ')||'Not specified'}
+RULES: Do's: ${(b.dos||[]).join(' | ')||'Be authentic'} | Don'ts: ${(b.donts||[]).join(' | ')||'Avoid generic claims'}
+SAMPLE COPY: ${b.sampleCopy||'Not provided'}
+AUDIENCE: ${a.description||'General audience'} | Age: ${(a.ageRanges||[]).join(', ')||'All ages'} | Location: ${a.countryLocation||'Malaysia'} | Pain points: ${(a.painPoints||[]).join(' | ')||'Not specified'} | Motivations: ${(a.motivations||[]).join(' | ')||'Not specified'}
+USP: ${m.usp||'Not set'} | CTA: ${m.cta||'Learn more'} | Key messages: ${(m.keyMessages||[]).join(' | ')||'Not specified'}
+IMPORTANT: Always write in a way that perfectly matches this brand's voice. Never be generic.`;
+  }
+
+  function buildUser(client,format,variantNum){
+    const toneNote=toneOverride!=='Use brand voice (default)'?`\nTONE: ${toneOverride}`:'';
+    const langNote=language!=='English'?`\nLANGUAGE: Write in ${language}.`:'';
+    const goalNote=goal?`\nGOAL: ${goal}`:'';
+    const productNote=productOffer?`\nPRODUCT/OFFER: ${productOffer}`:'';
+    const msgNote=keyMessage?`\nKEY MESSAGE: ${keyMessage}`:'';
+    const extraNote=extraContext?`\nEXTRA: ${extraContext}`:'';
+    const varNote=numVariants>1?`\nThis is VARIANT ${variantNum} of ${numVariants} — make it meaningfully different in angle, hook, or approach.`:'';
+    const instructions={
+      ig_caption:`Write an Instagram caption with: strong opening hook, 2–4 short paragraphs, clear CTA, 5–10 hashtags at end, natural emojis. Length: 150–300 words.`,
+      tiktok_caption:`Write a TikTok caption: ultra short (max 3 lines), conversational, trend-aware, 3–5 hashtags.`,
+      fb_caption:`Write a Facebook caption: conversational, up to 400 words, tell a mini-story, end with question or CTA, 1–3 hashtags.`,
+      ad_hook:`Write ONE scroll-stopping ad hook (max 10 words). Create curiosity or urgency. Do NOT start with brand name. Output ONLY the hook.`,
+      ad_headline:`Write ONE ad headline (max 40 chars). Punchy, benefit-focused. Output ONLY the headline.`,
+      ad_body:`Write ad body copy: hook + problem (1-2 lines) + solution (2-3 lines) + 2-3 bullet benefits with emojis + social proof + CTA with [LINK]. 80-150 words.`,
+      email_subject:`Write ONE email subject line (max 50 chars). High open-rate, no spam words. Output ONLY the subject.`,
+      email_preview:`Write ONE email preview text (max 90 chars). Complements subject line. Output ONLY the preview text.`,
+      email_body:`Write a short promotional email: greeting [First Name] + hook + offer (2-3 paragraphs) + benefits + CTA [LINK] + sign-off. 150-250 words.`,
+      whatsapp:`Write a WhatsApp broadcast: warm personal greeting + conversational (max 150 words) + action step [LINK] + friendly sign-off. Bold with *asterisks* sparingly.`,
+      shopee_title:`Write SEO-optimised Shopee title (max 120 chars) with product name, key feature, size/variant. Output ONLY the title.`,
+      shopee_desc:`Write Shopee/Lazada product description: benefit hook + bullet features with emojis + who it's for + how to use + trust signals + CTA. 200-350 words.`,
+      story_script:`Write a 30s video script:\n[HOOK 0-3s]: (visual + words)\n[PROBLEM 3-8s]: (pain point)\n[SOLUTION 8-18s]: (product)\n[PROOF 18-23s]: (benefit)\n[CTA 23-30s]: (action)\nKeep spoken words natural. Include visual directions in brackets.`,
+      sms_blast:`Write SMS blast (HARD LIMIT 160 chars). Brand name + offer + [LINK]. Output ONLY the SMS text.`,
+      linkedin_post:`Write LinkedIn post: value-first opening + brand story + 3-5 takeaways + 3-5 hashtags. Professional but human. 200-400 words.`,
+    };
+    return`${instructions[format]||'Write compelling marketing copy.'}${toneNote}${langNote}${goalNote}${productNote}${msgNote}${extraNote}${varNote}\n\nWrite ONLY the copy itself. No preamble like "Here is your caption:". Output the copy directly.`;
+  }
+
+  async function generateCopy(){
+    if(!clientId&&clients.length>0){showToast('Please select a client','er');return;}
+    if(selectedFormats.length===0){showToast('Please select at least one format','er');return;}
+    if(!productOffer&&!keyMessage){showToast('Add a product/offer or key message','er');return;}
+    if(!apiKey){showToast('No Claude API key — go to Settings','er');return;}
+    setGenerating(true);setResults([]);
+    const client=getClient();
+    const systemPrompt=buildSystem(client);
+    const newResults=[];const total=selectedFormats.length*numVariants;let done=0;
+    for(const format of selectedFormats){
+      for(let v=1;v<=numVariants;v++){
+        done++;setProgress(`Generating ${done} of ${total} — ${FORMATS.find(f=>f.id===format)?.label||format} variant ${v}…`);
+        try{
+          const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:systemPrompt,messages:[{role:'user',content:buildUser(client,format,v)}]})});
+          if(!res.ok){const err=await res.json().catch(()=>({}));if(res.status===401){showToast('Invalid API key','er');setGenerating(false);setProgress('');return;}throw new Error(err.error?.message||`HTTP ${res.status}`);}
+          const data=await res.json();const text=data.content?.[0]?.text?.trim()||'';
+          if(text){const item={id:uid(),formatId:format,variantNum:v,text,clientId:clientId||'',clientName:client?client.basics.brandName||client.basics.clientName:'No client',goal,productOffer,keyMessage,toneOverride,lang:language,createdAt:new Date().toISOString()};newResults.push(item);setResults(p=>[...p,item]);}
+          if(done<total)await new Promise(r=>setTimeout(r,300));
+        }catch(e){const item={id:uid(),formatId:format,variantNum:v,text:`⚠ Error: ${e.message}`,clientId:'',clientName:'',createdAt:new Date().toISOString(),error:true};newResults.push(item);setResults(p=>[...p,item]);}
+      }
+    }
+    const session={id:uid(),createdAt:new Date().toISOString(),clientId:clientId||'',clientName:client?client.basics.brandName||client.basics.clientName:'No client',goal,productOffer,formats:selectedFormats,numVariants,items:newResults};
+    await db.upsertCopyHistory(session);
+    const hi=await db.getCopyHistory();setHistory(hi);
+    setGenerating(false);setProgress('');
+    showToast(`✓ Generated ${newResults.filter(r=>!r.error).length} copy variants`,'ok');
+  }
+
+  async function saveItem(item){
+    if(saved.find(s=>s.id===item.id))return;
+    await db.upsertSavedCopy(item);
+    const sv=await db.getSavedCopy();setSavedItems(sv);
+    showToast('Copy saved ✓','ok');
+  }
+
+  async function unsaveItem(id){
+    await db.deleteSavedCopy(id);
+    const sv=await db.getSavedCopy();setSavedItems(sv);
+    showToast('Removed from saved','ok');
+  }
+
+  const deleteResult=id=>setResults(p=>p.filter(r=>r.id!==id));
+  const savedIds=saved.map(s=>s.id);
+
+  async function copyAll(){const text=results.filter(r=>!r.error).map(r=>{const fmt=FORMATS.find(f=>f.id===r.formatId);return`=== ${fmt?.label||r.formatId} (Variant ${r.variantNum}) ===\n${r.text}`;}).join('\n\n');try{await navigator.clipboard.writeText(text);showToast('All copy copied ✓','ok');}catch{alert('Select and copy manually.');}}
+  async function saveAll(){const unsaved=results.filter(r=>!r.error&&!savedIds.includes(r.id));if(!unsaved.length){showToast('All already saved','wn');return;}for(const item of unsaved)await db.upsertSavedCopy(item);const sv=await db.getSavedCopy();setSavedItems(sv);showToast(`Saved ${unsaved.length} items ✓`,'ok');}
+  async function clearSaved(){if(!confirm('Clear all saved copy?'))return;for(const item of saved)await db.deleteSavedCopy(item.id);setSavedItems([]);showToast('Cleared','ok');}
+
+  const displayResults=filterFormat==='all'?results:results.filter(r=>r.formatId===filterFormat);
+  const displaySaved=filterFormat==='all'?saved:saved.filter(r=>r.formatId===filterFormat);
+
+  if(locked)return html`
+    <div style=${{minHeight:'100vh',background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+      <div style=${{background:C.s1,border:`0.5px solid ${C.bd}`,borderRadius:14,padding:40,width:'100%',maxWidth:360,textAlign:'center'}}>
+        <div style=${{width:60,height:60,borderRadius:16,background:`linear-gradient(135deg,${C.pu},${C.ac})`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',fontSize:24}}>✍️</div>
+        <div style=${{fontSize:24,fontWeight:700,color:C.tx}}>OmniraAI</div>
+        <div style=${{fontSize:13,color:C.dm,margin:'4px 0 28px'}}>AI Copy Generator${pmode==='create'?' — Create PIN':''}</div>
+        <input style=${inp({marginBottom:10,textAlign:'center',letterSpacing:6,fontSize:20})} type="password" placeholder=${pmode==='create'?'Create PIN (min 4)':'Enter PIN'} value=${pin} onChange=${e=>setPin(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&(pmode==='check'?doPin():null)} autoFocus/>
+        ${pmode==='create'&&html`<input style=${inp({marginBottom:14,textAlign:'center',letterSpacing:6,fontSize:20})} type="password" placeholder="Confirm PIN" value=${pin2} onChange=${e=>setPin2(e.target.value)} onKeyDown=${e=>e.key==='Enter'&&doPin()}/>`}
+        ${pErr&&html`<div style=${{color:C.er,fontSize:12,marginBottom:12}}>${pErr}</div>`}
+        <button style=${pbtn(true,{width:'100%',padding:'11px 0',fontSize:15})} onClick=${doPin}>${pmode==='create'?'Create PIN & Enter →':'Unlock →'}</button>
+        <div style=${{fontSize:11,color:C.mt,marginTop:16}}>OmniraAI · Powered by Supabase</div>
+      </div>
+    </div>`;
+
+  const hdr=html`
+    <div style=${{background:C.s1,borderBottom:`1px solid ${C.bd}`,padding:'0 24px',height:54,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50}}>
+      <div style=${{display:'flex',alignItems:'center',gap:10}}>
+        <div style=${{width:30,height:30,borderRadius:8,background:`linear-gradient(135deg,${C.pu},${C.ac})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>✍️</div>
+        <span style=${{fontSize:15,fontWeight:600,color:C.tx}}>OmniraAI</span>
+        <span style=${{fontSize:12,color:C.mt}}>/ AI Copy Generator</span>
+      </div>
+      <div style=${{display:'flex',gap:4,alignItems:'center'}}>
+        ${['generate','saved','history','settings'].map(v=>html`<button key=${v} onClick=${()=>setView(v)} style=${{...pbtn(view===v),fontSize:12,padding:'5px 12px',background:view===v?C.ac:'transparent'}}>
+          ${{generate:'✍️ Generate',saved:`💾 Saved${saved.length>0?' ('+saved.length+')':''}`,history:'🕑 History',settings:'⚙ Settings'}[v]}
+        </button>`)}
+      </div>
+    </div>`;
+
+  const settingsView=html`
+    <div style=${{maxWidth:680,margin:'0 auto',padding:'32px 24px'}}>
+      <div style=${{fontSize:19,fontWeight:600,color:C.tx,marginBottom:28}}>Settings</div>
+      <${Card} style=${{padding:24,marginBottom:14}}>
+        <${Sec} t="Claude API Key">
+          <input style=${inp({fontFamily:'monospace',fontSize:12,marginBottom:12})} type="password" value=${apiKeyInput} onChange=${e=>setApiKeyInput(e.target.value)} placeholder="sk-ant-api03-…"/>
+          <div style=${{display:'flex',gap:8,alignItems:'center'}}>
+            <button onClick=${saveApiKey} style=${pbtn(true,{fontSize:13,padding:'8px 20px'})}>Save API Key</button>
+            ${apiKey&&html`<span style=${{fontSize:12,color:C.ok}}>✓ Key saved (${apiKey.slice(0,16)}…)</span>`}
+          </div>
+          <${Hint}>Get your key from console.anthropic.com → API Keys → Create Key. Stored securely in Supabase settings.</${Hint}>
+        </${Sec}>
+        <${Sec} t="Pricing estimate">
+          <div style=${{display:'flex',flexDirection:'column',gap:6}}>
+            ${[['Model','claude-sonnet-4-20250514'],['Per copy item','~$0.003–0.015'],['10 formats × 3 variants','~$0.10–0.40 per run'],['Monthly (light use)','~$5–15/mo'],['Monthly (heavy use)','~$20–40/mo']].map(([l,v])=>html`<div key=${l} style=${{display:'flex',gap:12,padding:'8px 12px',background:C.s2,borderRadius:6,fontSize:12}}><span style=${{color:C.dm,minWidth:160,flexShrink:0}}>${l}</span><span style=${{color:C.tx}}>${v}</span></div>`)}
+          </div>
+        </${Sec}>
+        <${Sec} t="App 1 connection status">
+          <div style=${{padding:'11px 14px',background:C.s2,borderRadius:8,border:`0.5px solid ${clients.length>0?C.ok:C.wn}50`,display:'flex',alignItems:'center',gap:10}}>
+            <div style=${{width:8,height:8,borderRadius:'50%',background:clients.length>0?C.ok:C.wn}}></div>
+            <span style=${{fontSize:13,color:clients.length>0?C.ok:C.wn}}>${clients.length>0?`✓ ${clients.length} client brief${clients.length>1?'s':''} loaded from Supabase`:'No clients — add in Brand Manager (App 1) first'}</span>
+          </div>
+        </${Sec}>
+      </${Card}>
+    </div>`;
+
+  const historyView=html`
+    <div style=${{maxWidth:900,margin:'0 auto',padding:'24px'}}>
+      <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div><div style=${{fontSize:19,fontWeight:600,color:C.tx}}>Generation History</div><div style=${{fontSize:13,color:C.dm,marginTop:2}}>Last 50 sessions</div></div>
+        ${history.length>0&&html`<button onClick=${async()=>{if(!confirm('Clear history?'))return;await db.clearCopyHistory();setHistory([]);}} style=${pbtn(false,{fontSize:12,padding:'5px 12px',color:C.er,border:`0.5px solid ${C.er}40`})}>Clear</button>`}
+      </div>
+      ${loading?html`<${Spinner}/>`:history.length===0?html`<div style=${{textAlign:'center',padding:'50px',color:C.dm}}>No history yet</div>`:
+      history.map(s=>html`
+        <${Card} style=${{padding:16,marginBottom:10}}>
+          <div style=${{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+            <div>
+              <div style=${{fontSize:14,fontWeight:600,color:C.tx,marginBottom:3}}>${s.clientName} — ${s.goal||'No goal'}</div>
+              <div style=${{fontSize:12,color:C.dm,marginBottom:5}}>${s.productOffer||'No product specified'}</div>
+              <div style=${{display:'flex',flexWrap:'wrap',gap:5}}>${(s.formats||[]).map((f,i)=>{const fmt=FORMATS.find(x=>x.id===f);return html`<span key=${i} style=${{background:C.s3,border:`0.5px solid ${C.bd}`,borderRadius:4,padding:'2px 7px',fontSize:11,color:C.dm}}>${fmt?.icon} ${fmt?.label||f}</span>`;})}</div>
+            </div>
+            <div style=${{textAlign:'right',flexShrink:0,marginLeft:12}}><div style=${{fontSize:12,color:C.mt,marginBottom:4}}>${fmtdt(s.createdAt)}</div><div style=${{fontSize:11,color:C.dm}}>${(s.items||[]).filter(i=>!i.error).length} items</div></div>
+          </div>
+          <button onClick=${()=>{setResults(s.items||[]);setView('generate');showToast('Session restored','ok');}} style=${pbtn(false,{fontSize:12,padding:'5px 12px'})}>↩ Restore to results</button>
+        </${Card}>`)}
+    </div>`;
+
+  const savedView=html`
+    <div style=${{maxWidth:900,margin:'0 auto',padding:'24px'}}>
+      <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
+        <div><div style=${{fontSize:19,fontWeight:600,color:C.tx}}>Saved Copy</div><div style=${{fontSize:13,color:C.dm,marginTop:2}}>${saved.length} items</div></div>
+        <div style=${{display:'flex',gap:7}}>
+          <select style=${inp({width:'auto',fontSize:12,padding:'5px 10px'})} value=${filterFormat} onChange=${e=>setFilterFormat(e.target.value)}><option value="all">All formats</option>${FORMATS.map(f=>html`<option key=${f.id} value=${f.id}>${f.icon} ${f.label}</option>`)}</select>
+          ${saved.length>0&&html`<button onClick=${clearSaved} style=${pbtn(false,{fontSize:12,padding:'5px 12px',color:C.er,border:`0.5px solid ${C.er}40`})}>Clear All</button>`}
+        </div>
+      </div>
+      ${loading?html`<${Spinner}/>`:displaySaved.length===0?html`<div style=${{textAlign:'center',padding:'50px',color:C.dm}}><div style=${{fontSize:40,marginBottom:12}}>💾</div><div style=${{fontSize:15,color:C.tx,marginBottom:6}}>No saved copy</div></div>`:displaySaved.map(item=>html`<${CopyCard} key=${item.id} item=${item} onSave=${saveItem} onDelete=${unsaveItem} savedIds=${savedIds}/>`)}
+    </div>`;
+
+  const generateView=html`
+    <div style=${{display:'grid',gridTemplateColumns:'380px 1fr',gap:0,minHeight:'calc(100vh - 54px)'}}>
+      <div style=${{borderRight:`1px solid ${C.bd}`,padding:'24px',overflowY:'auto',background:C.s4,height:'calc(100vh - 54px)',position:'sticky',top:54}}>
+        ${!apiKey&&html`<div style=${{background:`${C.wn}12`,border:`1px solid ${C.wn}40`,borderRadius:8,padding:'11px 14px',marginBottom:16,fontSize:12,color:C.wn}}>⚠️ No API key. <button onClick=${()=>setView('settings')} style=${{background:'none',border:'none',color:C.ac,cursor:'pointer',fontSize:12,textDecoration:'underline'}}>Go to Settings</button></div>`}
+        <${Sec} t="Client & campaign">
+          <div style=${{marginBottom:12}}>
+            <${Lb}>Client</${Lb}>
+            <select style=${inp()} value=${clientId} onChange=${e=>setClientId(e.target.value)}>
+              <option value="">No client (generic copy)</option>
+              ${clients.filter(c=>c.status==='active'||c.status==='onboarding').map(c=>html`<option key=${c.id} value=${c.id}>${c.basics.brandName||c.basics.clientName}</option>`)}
+            </select>
+            ${clientId&&html`<div style=${{fontSize:11,color:C.ok,marginTop:4}}>✓ Brand brief auto-loaded from Supabase</div>`}
+          </div>
+          <div style=${{marginBottom:12}}><${Lb}>Goal</${Lb}><select style=${inp()} value=${goal} onChange=${e=>setGoal(e.target.value)}><option value="">Select goal…</option>${GOALS.map(g=>html`<option key=${g} value=${g}>${g}</option>`)}</select></div>
+          <div style=${{marginBottom:12}}><${Lb}>Product / offer / promotion *</${Lb}><textarea style=${inp({resize:'vertical',minHeight:72})} value=${productOffer} onChange=${e=>setProductOffer(e.target.value)} placeholder="What specifically are we promoting? Be as specific as possible…"/></div>
+          <div><${Lb}>Key message *</${Lb}><textarea style=${inp({resize:'vertical',minHeight:60})} value=${keyMessage} onChange=${e=>setKeyMessage(e.target.value)} placeholder="The single most important thing the audience must take away…"/></div>
+        </${Sec}>
+        <${Sec} t="Content formats">
+          <div style=${{display:'flex',flexWrap:'wrap',gap:5,marginBottom:8}}>
+            ${FORMATS.map(f=>html`<button key=${f.id} onClick=${()=>togFormat(f.id)} title=${f.platform} style=${{background:selectedFormats.includes(f.id)?C.ac:C.s3,color:selectedFormats.includes(f.id)?'#fff':C.dm,border:`0.5px solid ${selectedFormats.includes(f.id)?C.ac:C.bd}`,borderRadius:6,padding:'4px 9px',fontSize:11,cursor:'pointer',display:'flex',alignItems:'center',gap:4}}><span>${f.icon}</span><span>${f.label}</span></button>`)}
+          </div>
+          <div style=${{display:'flex',gap:6}}>
+            <button onClick=${()=>setSelectedFormats(FORMATS.map(f=>f.id))} style=${pbtn(false,{fontSize:11,padding:'3px 9px'})}>All</button>
+            <button onClick=${()=>setSelectedFormats([])} style=${pbtn(false,{fontSize:11,padding:'3px 9px'})}>Clear</button>
+          </div>
+          <div style=${{fontSize:11,color:C.mt,marginTop:6}}}>${selectedFormats.length} formats · ${selectedFormats.length*numVariants} items total</div>
+        </${Sec}>
+        <${Sec} t="Settings">
+          <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 14px',marginBottom:12}}>
+            <div><${Lb}>Variants</${Lb}><select style=${inp()} value=${numVariants} onChange=${e=>setNumVariants(parseInt(e.target.value))}>${[1,2,3,4,5].map(n=>html`<option key=${n} value=${n}>${n} variant${n>1?'s':''}</option>`)}</select></div>
+            <div><${Lb}>Language</${Lb}><select style=${inp()} value=${language} onChange=${e=>setLanguage(e.target.value)}>${LANGS.map(l=>html`<option key=${l} value=${l}>${l}</option>`)}</select></div>
+          </div>
+          <div style=${{marginBottom:12}}><${Lb}>Tone</${Lb}><select style=${inp()} value=${toneOverride} onChange=${e=>setToneOverride(e.target.value)}>${TONES.map(t=>html`<option key=${t} value=${t}>${t}</option>`)}</select></div>
+          <div><${Lb}>Extra context</${Lb}><textarea style=${inp({resize:'vertical',minHeight:56})} value=${extraContext} onChange=${e=>setExtraContext(e.target.value)} placeholder="Special instructions, must-include phrases…"/></div>
+        </${Sec}>
+        <button onClick=${generateCopy} disabled=${generating||!apiKey} style=${pbtn(true,{width:'100%',padding:'12px 0',fontSize:14,fontWeight:600,background:generating?C.mt:!apiKey?C.mt:C.ac,cursor:generating||!apiKey?'not-allowed':'pointer'})}>
+          ${generating?'Generating…':'⚡ Generate Copy'}
+        </button>
+        ${generating&&html`<div style=${{marginTop:12,padding:'10px 14px',background:C.s2,borderRadius:6,border:`0.5px solid ${C.bd}`}}><div style=${{fontSize:12,color:C.wn,marginBottom:6}}>${progress}</div><div style=${{height:3,background:C.bd,borderRadius:2}}><div style=${{height:'100%',background:C.ac,borderRadius:2,animation:'pulse 1.5s ease-in-out infinite'}}></div></div></div>`}
+      </div>
+      <div style=${{padding:'24px',overflowY:'auto',height:'calc(100vh - 54px)'}}>
+        ${results.length===0&&!generating?html`
+          <div style=${{textAlign:'center',padding:'80px 24px',color:C.dm}}>
+            <div style=${{fontSize:56,marginBottom:16}}>✍️</div>
+            <div style=${{fontSize:18,color:C.tx,marginBottom:8,fontWeight:600}}>Ready to generate</div>
+            <div style=${{fontSize:13,lineHeight:1.7,maxWidth:420,margin:'0 auto',marginBottom:20}}>Select a client, add your product/offer, pick formats, and hit Generate. Brand voice loads automatically from Supabase.</div>
+            ${!apiKey&&html`<div style=${{background:`${C.wn}12`,border:`1px solid ${C.wn}40`,borderRadius:8,padding:'12px 18px',fontSize:13,color:C.wn,display:'inline-block'}}>⚠️ Add your Claude API key in Settings first</div>`}
+          </div>`
+        :html`<div>
+          ${results.length>0&&html`
+            <div style=${{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+              <div style=${{fontSize:14,fontWeight:600,color:C.tx}}>${results.filter(r=>!r.error).length} variants generated${generating?' (in progress…)':''}</div>
+              <div style=${{display:'flex',gap:7,flexWrap:'wrap',alignItems:'center'}}>
+                <select style=${inp({width:'auto',fontSize:12,padding:'5px 10px'})} value=${filterFormat} onChange=${e=>setFilterFormat(e.target.value)}><option value="all">All formats</option>${[...new Set(results.map(r=>r.formatId))].map(fid=>{const fmt=FORMATS.find(f=>f.id===fid);return html`<option key=${fid} value=${fid}>${fmt?.icon} ${fmt?.label||fid}</option>`;})}</select>
+                <button onClick=${copyAll} style=${pbtn(false,{fontSize:12,padding:'5px 11px'})}>Copy all</button>
+                <button onClick=${saveAll} style=${pbtn(false,{fontSize:12,padding:'5px 11px',color:C.ok,border:`0.5px solid ${C.ok}40`})}>Save all</button>
+                <button onClick=${()=>setResults([])} style=${pbtn(false,{fontSize:12,padding:'5px 11px',color:C.er,border:`0.5px solid ${C.er}40`})}>Clear</button>
+              </div>
+            </div>`}
+          ${displayResults.map(item=>html`<${CopyCard} key=${item.id} item=${item} onSave=${saveItem} onDelete=${deleteResult} savedIds=${savedIds}/>`)}
+        </div>`}
+      </div>
+    </div>`;
+
+  return html`
+    <div style=${{minHeight:'100vh',background:C.bg,color:C.tx}}>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}</style>
+      ${hdr}
+      ${view==='generate'&&generateView}
+      ${view==='saved'&&savedView}
+      ${view==='history'&&historyView}
+      ${view==='settings'&&settingsView}
+      ${toast&&html`<div style=${{position:'fixed',bottom:24,right:24,background:C.s1,border:`1px solid ${toastType==='ok'?C.ok:toastType==='er'?C.er:C.wn}60`,borderRadius:8,padding:'10px 18px',fontSize:13,color:C.tx,zIndex:999,maxWidth:360}}>${toast}</div>`}
+    </div>`;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
