@@ -189,7 +189,7 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
       for(let v=1;v<=numVariants;v++){
         done++;setProgress(`Generating ${done} of ${total} — ${FORMATS.find(f=>f.id===format)?.label||format} variant ${v}…`);
         try{
-          const N8N_PROXY='https://n8n-y8wq-production.up.railway.app/webhook/claude-proxy';
+          const N8N_PROXY='https://corsproxy.io/?url=https://api.anthropic.com/v1/messages';
           const res=await fetch(N8N_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:systemPrompt,prompt:buildUser(client,format,v)})});
           const rawText=await res.text();
           if(!rawText||rawText.trim()===''){throw new Error('Empty response from n8n proxy');}
