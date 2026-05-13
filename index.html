@@ -193,16 +193,9 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
           const res=await fetch(N8N_PROXY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:systemPrompt,prompt:buildUser(client,format,v),apiKey:apiKey})});
           const rawText=await res.text();
           if(!rawText||rawText.trim()===''){throw new Error('Empty response from n8n proxy');}
-          let data;try{data=JSON.parse(rawText);}catch{throw new Error('Invalid JSON from proxy: '+rawText.slice(0,100));}
-          // Handle multiple possible n8n response structures
-          const text=(
-            data?.content?.[0]?.text||
-            data?.[0]?.content?.[0]?.text||
-            data?.body?.content?.[0]?.text||
-            data?.message?.content?.[0]?.text||
-            (typeof data?.content==='string'?data.content:'')||
-            ''
-          ).trim();
+          let data;try{data=JSON.parse(rawText);}catch{throw new Error('Bad JSON: '+rawText.slice(0,80));}
+          if(data.error){throw new Error(data.error.message||'API error');}
+          const text=(data?.content?.[0]?.text||'').trim();
           if(text){const item={id:uid(),formatId:format,variantNum:v,text,clientId:clientId||'',clientName:client?client.basics.brandName||client.basics.clientName:'No client',goal,productOffer,keyMessage,toneOverride,lang:language,createdAt:new Date().toISOString()};newResults.push(item);setResults(p=>[...p,item]);}
           if(done<total)await new Promise(r=>setTimeout(r,300));
         }catch(e){const item={id:uid(),formatId:format,variantNum:v,text:`⚠ Error: ${e.message}`,clientId:'',clientName:'',createdAt:new Date().toISOString(),error:true};newResults.push(item);setResults(p=>[...p,item]);}
