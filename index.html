@@ -347,7 +347,7 @@ IMPORTANT: Always write in a way that perfectly matches this brand's voice. Neve
             <button onClick=${()=>setSelectedFormats(FORMATS.map(f=>f.id))} style=${pbtn(false,{fontSize:11,padding:'3px 9px'})}>All</button>
             <button onClick=${()=>setSelectedFormats([])} style=${pbtn(false,{fontSize:11,padding:'3px 9px'})}>Clear</button>
           </div>
-          <div style=${{fontSize:11,color:C.mt,marginTop:6}}}>${selectedFormats.length} formats · ${selectedFormats.length*numVariants} items total</div>
+          <div style=${{fontSize:11,color:C.mt,marginTop:6}}>${selectedFormats.length} formats · ${selectedFormats.length*numVariants} items total</div>
         </${Sec}>
         <${Sec} t="Settings">
           <div style=${{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 14px',marginBottom:12}}>
